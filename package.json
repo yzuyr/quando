@@ -1,6 +1,6 @@
 {
   "name": "quando",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Typed pattern matching utility for TypeScript. Zero dependencies. Framework agnostic.",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
