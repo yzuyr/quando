@@ -1,0 +1,32 @@
+{
+  "name": "quando",
+  "version": "0.0.1",
+  "description": "Typed pattern matching utility for TypeScript. Zero dependencies. Framework agnostic.",
+  "license": "MIT",
+  "author": "Ryuz <ryuzer@proton.me>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yzuyr/quando.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc && tsdown",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "tsdown": "^0.21.9"
+  },
+  "peerDependencies": {
+    "typescript": "^6"
+  }
+}
