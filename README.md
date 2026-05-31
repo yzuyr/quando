@@ -374,8 +374,8 @@ collect(...values: (string | null | undefined | false)[]): string
 
 // List rendering
 each<TItem>(items: readonly TItem[]): EachBuilder<TItem>
-each<TItem>(accessor: IlhaListAccessor<TItem>): EachBuilder<IlhaItemAccessor<TItem>>
-// Ilha: pass state.todos, not state.todos()
+each<TItem>(accessor: IlhaArrayAccessor<TItem>): EachAccessorBuilder<TItem>
+// Ilha: pass state.todos, not state.todos() — requires ilha >= 0.6.1 for types
 // EachBuilder: .key(fn) → .as(fn) → .else(fn)?
 //              .as(fn)  → .else(fn)?
 // .as() returns EachResult<TItem, TOut> (TOut[] with optional .else())

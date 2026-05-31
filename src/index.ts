@@ -371,28 +371,29 @@ export function resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T> {
   };
 }
 
+import type { NestedSignalAccessor } from "ilha";
+
 // ---------------------------------------------------------------------------
 // EachBuilder — Svelte-style {#each}
 // ---------------------------------------------------------------------------
 
-/** Symbol description used by Ilha's `SIGNAL_ACCESSOR` (duck-typed, no ilha import). */
+/** Symbol description used by Ilha's `SIGNAL_ACCESSOR` (duck-typed at runtime). */
 const ILHA_SIGNAL_ACCESSOR = "ilha.signalAccessor";
 
+/** Re-export for consumers pairing quando with ilha >= 0.6.1. */
+export type { NestedSignalAccessor };
+
+/** Ilha marked accessor for an array value (`state.todos`). */
+export type IlhaArrayAccessor<TItem> = NestedSignalAccessor<readonly TItem[]>;
+
 /** Per-item path accessor from Ilha list `.map()` / `each(accessor)`. */
-export type IlhaItemAccessor<TItem> = {
-  (): TItem;
-  (value: TItem): void;
-} & Record<string, unknown>;
+export type IlhaItemAccessor<TItem> = NestedSignalAccessor<TItem>;
 
 /**
- * Ilha island list accessor (e.g. `state.todos`). Pass the accessor itself —
- * **not** `state.todos()`, which snapshots and breaks `bind:`.
+ * Ilha island list accessor with `.map` / nested fields (ilha >= 0.6.1).
+ * Pass the accessor itself — **not** `state.todos()`, which snapshots and breaks `bind:`.
  */
-export type IlhaListAccessor<TItem> = {
-  (): readonly TItem[];
-  (value: readonly TItem[]): void;
-  map<R>(fn: (item: IlhaItemAccessor<TItem>, index: number) => R): R[];
-};
+export type IlhaListAccessor<TItem> = NestedSignalAccessor<readonly TItem[]>;
 
 /** Mapped list result — usable directly in templates; chain `.else()` for empty fallback. */
 export type EachResult<TItem, TOut> = TOut[] & {
@@ -432,13 +433,17 @@ export function isSignalAccessor(v: unknown): v is IlhaItemAccessor<unknown> {
 }
 
 /** Ilha island array accessor (`state.todos`) with `.map` yielding per-item accessors. */
-export function isListAccessor<TItem>(v: unknown): v is IlhaListAccessor<TItem> {
+export function isListAccessor<TItem>(v: unknown): v is IlhaArrayAccessor<TItem> {
   if (!isSignalAccessor(v)) return false;
   return typeof (v as { map?: unknown }).map === "function";
 }
 
+function isItemSignalAccessor<T>(item: T | IlhaItemAccessor<T>): item is IlhaItemAccessor<T> {
+  return typeof item === "function" && hasIlhaSignalBrand(item);
+}
+
 function itemSnapshot<T>(item: T | IlhaItemAccessor<T>): T {
-  if (isSignalAccessor(item)) return (item as IlhaItemAccessor<T>)();
+  if (isItemSignalAccessor(item)) return item();
   return item;
 }
 
@@ -459,14 +464,15 @@ function createEachResult<TItem, TOut>(
 }
 
 function createEachResultFromAccessor<TItem, TOut>(
-  accessor: IlhaListAccessor<TItem>,
+  accessor: IlhaArrayAccessor<TItem>,
   mapFn: (item: IlhaItemAccessor<TItem>, index: number) => TOut,
 ): EachResult<IlhaItemAccessor<TItem>, TOut> {
+  const list = accessor as IlhaListAccessor<TItem>;
   const items = accessor();
   const mapped =
     items.length === 0
       ? []
-      : accessor.map((item, index) => mapFn(item, index));
+      : list.map((item, index) => mapFn(item, index));
   const result = mapped as EachResult<IlhaItemAccessor<TItem>, TOut>;
   Object.defineProperty(result, "else", {
     value<TEmpty>(fn: (items: readonly TItem[]) => TEmpty): TOut[] | TEmpty {
@@ -497,7 +503,7 @@ function createEachBuilder<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
 }
 
 function createEachAccessorBuilder<TItem>(
-  accessor: IlhaListAccessor<TItem>,
+  accessor: IlhaArrayAccessor<TItem>,
 ): EachAccessorBuilder<TItem> {
   return {
     key(keyFn) {
@@ -538,9 +544,9 @@ function createEachAccessorBuilder<TItem>(
  *   .else(() => html`<EmptyState />`)
  */
 export function each<TItem>(items: readonly TItem[]): EachBuilder<TItem>;
-export function each<TItem>(accessor: IlhaListAccessor<TItem>): EachAccessorBuilder<TItem>;
+export function each<TItem>(accessor: IlhaArrayAccessor<TItem>): EachAccessorBuilder<TItem>;
 export function each<TItem>(
-  input: readonly TItem[] | IlhaListAccessor<TItem>,
+  input: readonly TItem[] | IlhaArrayAccessor<TItem>,
 ): EachBuilder<TItem> | EachAccessorBuilder<TItem> {
   if (isListAccessor<TItem>(input)) {
     return createEachAccessorBuilder(input);
