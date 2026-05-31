@@ -784,7 +784,7 @@ describe("each() .as() .else()", () => {
       each([] as number[])
         .as((n) => `item-${n}`)
         .else(() => "empty"),
-    ).toBe("empty");
+    ).toEqual(["empty"]);
   });
 
   it("accepts a static else value", () => {
@@ -792,7 +792,7 @@ describe("each() .as() .else()", () => {
       each([] as number[])
         .as((n) => `item-${n}`)
         .else("empty"),
-    ).toBe("empty");
+    ).toEqual(["empty"]);
   });
 
   it("returns mapped items when collection is non-empty (static else)", () => {
@@ -840,7 +840,7 @@ describe("each() .as() .else()", () => {
     const result = each([] as number[])
       .as((n) => n)
       .else(() => ({ kind: "empty" as const }));
-    expect(result).toEqual({ kind: "empty" });
+    expect(result as unknown).toEqual([{ kind: "empty" }]);
   });
 
   it("works with object return types from map", () => {
@@ -848,6 +848,34 @@ describe("each() .as() .else()", () => {
       .as((n) => ({ id: n }))
       .else(() => null);
     expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+  });
+
+  it("keeps null and false else values unwrapped", () => {
+    expect(
+      each([] as number[])
+        .as((n) => n)
+        .else(() => null),
+    ).toBe(null);
+    expect(
+      each([] as number[])
+        .as((n) => n)
+        .else(false),
+    ).toBe(false);
+  });
+
+  it("wraps static renderable else values in an array", () => {
+    const emptyNode = { value: "<p>No todos.</p>" };
+    expect(
+      each([] as number[])
+        .as((n) => n)
+        .else(emptyNode) as unknown,
+    ).toEqual([emptyNode]);
+  });
+
+  it("throws when given a function instead of an array", () => {
+    expect(() => each((() => []) as unknown as number[])).toThrow(
+      /expected an array but received a function/,
+    );
   });
 });
 
@@ -874,7 +902,7 @@ describe("each() .key()", () => {
         .key((item) => item.id)
         .as((item, _i, id) => `row:${id}:${item.id}`)
         .else(() => "empty"),
-    ).toBe("empty");
+    ).toEqual(["empty"]);
   });
 
   it("does not call key or map when the collection is empty", () => {

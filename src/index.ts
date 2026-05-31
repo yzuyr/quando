@@ -390,6 +390,11 @@ export interface EachBuilder<TItem> {
   as<TOut>(fn: (item: TItem, index: number) => TOut): EachResult<TItem, TOut>;
 }
 
+function normalizeElseOutput<T>(value: T): T | readonly T[] {
+  if (value == null || value === false) return value;
+  return Array.isArray(value) ? value : [value];
+}
+
 function createEachResult<TItem, TOut>(
   items: readonly TItem[],
   mapFn: (item: TItem, index: number) => TOut,
@@ -401,9 +406,11 @@ function createEachResult<TItem, TOut>(
       fallback: TEmpty | ((items: readonly TItem[]) => TEmpty),
     ): TOut[] | TEmpty {
       if (items.length === 0) {
-        return typeof fallback === "function"
-          ? (fallback as (items: readonly TItem[]) => TEmpty)(items)
-          : fallback;
+        const resolved =
+          typeof fallback === "function"
+            ? (fallback as (items: readonly TItem[]) => TEmpty)(items)
+            : fallback;
+        return normalizeElseOutput(resolved) as TOut[] | TEmpty;
       }
       return mapped;
     },
@@ -443,5 +450,11 @@ function createEachBuilder<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
  *   .else(() => html`<EmptyState />`)
  */
 export function each<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
-  return createEachBuilder(items);
+  if (typeof items === "function") {
+    throw new TypeError(
+      "[quando] each() expected an array but received a function. " +
+        "Call accessors first (each(state.items())) or pass a snapshot from a reactive render.",
+    );
+  }
+  return createEachBuilder(Array.isArray(items) ? items : []);
 }

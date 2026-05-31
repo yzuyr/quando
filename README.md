@@ -255,7 +255,7 @@ each(items)
 // → RawHtml[]  or  RawHtml
 ```
 
-When the collection is empty, `.else()` returns the fallback — a static value or the result of the callback (which receives the empty array). The map function is not called.
+When the collection is empty, `.else()` returns the fallback wrapped in a single-element array (unless the fallback is `null` or `false`) — a static value or the result of the callback (which receives the empty array). The map function is not called.
 
 ### Keyed lists
 
