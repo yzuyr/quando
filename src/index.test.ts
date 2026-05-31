@@ -908,8 +908,8 @@ describe("each() .key()", () => {
       .all();
 
     expect(result).toEqual([
-      { id: "a", props: { item: items[0] } },
-      { id: "b", props: { item: items[1] } },
+      { id: "a", props: { item: { id: "a", label: "Alpha" } } },
+      { id: "b", props: { item: { id: "b", label: "Beta" } } },
     ]);
   });
 });

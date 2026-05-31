@@ -307,16 +307,17 @@ export interface ResourceBuilder<T> {
   ready<TReady>(fn: (value: T | undefined) => TReady): TReady;
 }
 
-function resolveResource<T, TOut>(
+function resolveResource<T, TLoading, TErr, TReady>(
   envelope: ResourceEnvelope<T>,
   branches: {
-    loading?: () => TOut;
-    error?: (error: Error) => TOut;
-    ready: (value: T | undefined) => TOut;
+    loading?: () => TLoading;
+    error?: (error: Error) => TErr;
+    ready: (value: T | undefined) => TReady;
   },
-): TOut {
-  if (envelope.loading && branches.loading) return branches.loading();
-  if (envelope.error && branches.error) return branches.error(envelope.error);
+): TLoading | TErr | TReady {
+  if (envelope.loading && branches.loading) return branches.loading() as TLoading | TErr | TReady;
+  if (envelope.error && branches.error)
+    return branches.error(envelope.error) as TLoading | TErr | TReady;
   return branches.ready(envelope.value);
 }
 
@@ -337,12 +338,12 @@ function resolveResource<T, TOut>(
  */
 export function resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T> {
   return {
-    loading(fn) {
+    loading<TLoading>(fn: () => TLoading) {
       return {
-        error(errorFn) {
+        error<TErr>(errorFn: (error: Error) => TErr) {
           return {
-            ready(readyFn) {
-              return resolveResource(envelope, {
+            ready<TReady>(readyFn: (value: T | undefined) => TReady) {
+              return resolveResource<T, TLoading, TErr, TReady>(envelope, {
                 loading: fn,
                 error: errorFn,
                 ready: readyFn,
@@ -353,16 +354,19 @@ export function resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T> {
       };
     },
 
-    error(errorFn) {
+    error<TErr>(errorFn: (error: Error) => TErr) {
       return {
-        ready(readyFn) {
-          return resolveResource(envelope, { error: errorFn, ready: readyFn });
+        ready<TReady>(readyFn: (value: T | undefined) => TReady) {
+          return resolveResource<T, never, TErr, TReady>(envelope, {
+            error: errorFn,
+            ready: readyFn,
+          });
         },
       };
     },
 
-    ready(readyFn) {
-      return resolveResource(envelope, { ready: readyFn });
+    ready<TReady>(readyFn: (value: T | undefined) => TReady) {
+      return resolveResource<T, never, never, TReady>(envelope, { ready: readyFn });
     },
   };
 }
