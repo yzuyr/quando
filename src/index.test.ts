@@ -787,6 +787,22 @@ describe("each() .as() .else()", () => {
     ).toBe("empty");
   });
 
+  it("accepts a static else value", () => {
+    expect(
+      each([] as number[])
+        .as((n) => `item-${n}`)
+        .else("empty"),
+    ).toBe("empty");
+  });
+
+  it("returns mapped items when collection is non-empty (static else)", () => {
+    expect(
+      each([1, 2])
+        .as((n) => n * 2)
+        .else("empty"),
+    ).toEqual([2, 4]);
+  });
+
   it("passes the empty collection to the else callback", () => {
     const received: number[][] = [];
     each([] as number[])

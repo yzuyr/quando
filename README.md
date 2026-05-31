@@ -248,10 +248,14 @@ html`<ul>${each(items).as((item) => html`<li>${item.name}</li>`)}</ul>`
 each(items)
   .as((item) => html`<li>${item.name}</li>`)
   .else(() => html`<p>No items</p>`);
+
+each(items)
+  .as((item) => html`<li>${item.name}</li>`)
+  .else(html`<p>No items</p>`);
 // → RawHtml[]  or  RawHtml
 ```
 
-When the collection is empty, `.else()` runs and receives the empty array. The map function is not called.
+When the collection is empty, `.else()` returns the fallback — a static value or the result of the callback (which receives the empty array). The map function is not called.
 
 ### Keyed lists
 
@@ -269,7 +273,7 @@ each(items)
 | Call | Returns | Empty collection |
 | ---- | ------- | ---------------- |
 | `.as(fn)` | `TOut[]` | `[]` |
-| `.as(fn).else(fn)` | `TOut[]` \| `TEmpty` | fallback value |
+| `.as(fn).else(fn \| value)` | `TOut[]` \| `TEmpty` | fallback value or callback |
 
 ---
 

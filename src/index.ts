@@ -378,6 +378,7 @@ export function resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T> {
 /** Mapped list result — usable directly in templates; chain `.else()` for empty fallback. */
 export type EachResult<TItem, TOut> = TOut[] & {
   else<TEmpty>(fn: (items: readonly TItem[]) => TEmpty): TOut[] | TEmpty;
+  else<TEmpty>(value: TEmpty): TOut[] | TEmpty;
 };
 
 export interface EachKeyedBuilder<TItem, TKey> {
@@ -396,8 +397,14 @@ function createEachResult<TItem, TOut>(
   const mapped = items.length === 0 ? [] : items.map(mapFn);
   const result = mapped as EachResult<TItem, TOut>;
   Object.defineProperty(result, "else", {
-    value<TEmpty>(fn: (items: readonly TItem[]) => TEmpty): TOut[] | TEmpty {
-      if (items.length === 0) return fn(items);
+    value<TEmpty>(
+      fallback: TEmpty | ((items: readonly TItem[]) => TEmpty),
+    ): TOut[] | TEmpty {
+      if (items.length === 0) {
+        return typeof fallback === "function"
+          ? (fallback as (items: readonly TItem[]) => TEmpty)(items)
+          : fallback;
+      }
       return mapped;
     },
     enumerable: false,
