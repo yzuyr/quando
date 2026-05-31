@@ -1,6 +1,6 @@
 {
   "name": "quando",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Typed pattern matching utility for TypeScript. Zero dependencies. Framework agnostic.",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -28,9 +28,7 @@
     "@types/bun": "latest",
     "oxfmt": "^0.52.0",
     "oxlint": "^1.67.0",
-    "tsdown": "^0.22.1"
-  },
-  "peerDependencies": {
+    "tsdown": "^0.22.1",
     "typescript": "^6"
   }
 }

@@ -233,12 +233,12 @@ describe(".all()", () => {
 // ---------------------------------------------------------------------------
 
 describe(".first()", () => {
-  it("returns undefined when nothing matches", () => {
+  it("returns null when nothing matches", () => {
     expect(
       match({ x: false })
         .when(({ x }) => x, "hit")
         .first(),
-    ).toBeUndefined();
+    ).toBeNull();
   });
 
   it("returns only the first matched result", () => {
@@ -267,12 +267,12 @@ describe(".first()", () => {
 // ---------------------------------------------------------------------------
 
 describe(".last()", () => {
-  it("returns undefined when nothing matches", () => {
+  it("returns null when nothing matches", () => {
     expect(
       match({ x: false })
         .when(({ x }) => x, "hit")
         .last(),
-    ).toBeUndefined();
+    ).toBeNull();
   });
 
   it("returns only the last matched result", () => {
@@ -396,12 +396,12 @@ describe("edge cases", () => {
     expect(match({ x: 1 }).all()).toEqual([]);
   });
 
-  it("no matchers registered — first() returns undefined", () => {
-    expect(match({ x: 1 }).first()).toBeUndefined();
+  it("no matchers registered — first() returns null", () => {
+    expect(match({ x: 1 }).first()).toBeNull();
   });
 
-  it("no matchers registered — last() returns undefined", () => {
-    expect(match({ x: 1 }).last()).toBeUndefined();
+  it("no matchers registered — last() returns null", () => {
+    expect(match({ x: 1 }).last()).toBeNull();
   });
 
   it("no matchers registered — resolve() returns empty string", () => {
@@ -551,6 +551,38 @@ describe("when()", () => {
       },
     );
     expect(received).toEqual([false]);
+  });
+
+  it("accepts nullable and optional values with truthy semantics", () => {
+    const received: string[] = [];
+    expect(
+      when("hello", (result) => {
+        received.push(result);
+        return result;
+      }),
+    ).toBe("hello");
+    expect(received).toEqual(["hello"]);
+    expect(when(null as string | null, () => "x")).toBeNull();
+    expect(when(undefined as string | undefined, () => "x")).toBeNull();
+    expect(when("", () => "x")).toBeNull();
+    expect(when(0, () => "x")).toBeNull();
+  });
+
+  it("passes falsy condition values into the false branch callback", () => {
+    expect(
+      when(
+        null as string | null,
+        () => "yes",
+        (value) => value,
+      ),
+    ).toBeNull();
+    expect(
+      when(
+        "",
+        () => "yes",
+        (value) => value,
+      ),
+    ).toBe("");
   });
 
   // --- JSX / templating use-cases ---

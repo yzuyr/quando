@@ -15,6 +15,9 @@ type Matcher<TIn, TOut> =
       cases: Partial<Record<PropertyKey, TOut | ((value: TIn) => TOut)>>;
     };
 
+/** Values treated as no-match by `when()` — same truthiness as `if (value)`. */
+type NonFalsy<T> = T extends null | undefined | false | 0 | 0n | "" ? never : T;
+
 // ---------------------------------------------------------------------------
 // MatchBuilder
 // ---------------------------------------------------------------------------
@@ -67,7 +70,7 @@ export interface MatchBuilder<TIn, TOut> {
 
   /**
    * Evaluate all registered matchers and return the first matched result,
-   * or `undefined` if nothing matched.
+   * or `null` if nothing matched — safe for Ilha / JSX interpolation.
    *
    * @example
    * match({ status: "error" })
@@ -75,14 +78,14 @@ export interface MatchBuilder<TIn, TOut> {
    *   .first()
    * // → "text-red-600"
    */
-  first(): TOut | undefined;
+  first(): TOut | null;
 
   /**
    * Evaluate all registered matchers and return the last matched result,
-   * or `undefined` if nothing matched. Useful when later matchers are
+   * or `null` if nothing matched. Useful when later matchers are
    * intentionally more specific overrides.
    */
-  last(): TOut | undefined;
+  last(): TOut | null;
 
   /**
    * Evaluate all registered matchers. When `TOut` is `string`, joins all
@@ -145,13 +148,13 @@ function createMatchBuilder<TIn, TOut>(
       return evaluate();
     },
 
-    first(): TOut | undefined {
-      return evaluate()[0];
+    first(): TOut | null {
+      return evaluate()[0] ?? null;
     },
 
-    last(): TOut | undefined {
+    last(): TOut | null {
       const results = evaluate();
-      return results[results.length - 1];
+      return results.length > 0 ? results[results.length - 1]! : null;
     },
 
     resolve(): any {
@@ -203,6 +206,12 @@ function createMatchBuilder<TIn, TOut>(
  *     pending: <SpinnerIcon />,
  *   })
  *   .first();
+ *
+ * @example — Ilha island (snapshot state into a plain object)
+ * match({ variant: props.variant, count: state.todos().length })
+ *   .when(({ count }) => count === 0, () => html`<p>No todos</p>`)
+ *   .when("variant", { primary: () => html`<Badge>Primary</Badge>` })
+ *   .first();
  */
 export function match<TIn extends Record<string, unknown>>(value: TIn): MatchBuilder<TIn, string>;
 export function match<TIn extends Record<string, unknown>, TOut>(
@@ -213,12 +222,19 @@ export function match<TIn extends Record<string, unknown>>(value: TIn): MatchBui
 }
 
 /**
- * Lightweight boolean branch helper. Returns `onTrue(condition)` when the
+ * Lightweight truthy branch helper. Returns `onTrue(condition)` when the
  * condition is truthy, `null` otherwise — safe for JSX / ilha template
  * interpolation where `false` would render as text but `null` is silently
  * ignored.
  *
- * @example — JSX conditional rendering
+ * Accepts any value (`null`, `undefined`, `""`, `0`, etc. are no-match).
+ * The true-branch callback receives the narrowed, truthy condition value.
+ *
+ * @example — nullable signal / async result
+ * when(state.result(), (result) => <p>{result}</p>)
+ * // → <p>…</p>  |  null
+ *
+ * @example — boolean flag
  * when(isDisabled, (v) => <span class="badge">{String(v)}</span>)
  * // → <span class="badge">true</span>  |  null
  *
@@ -226,7 +242,7 @@ export function match<TIn extends Record<string, unknown>>(value: TIn): MatchBui
  * when(isActive, () => "ring-2 ring-indigo-500")
  * // → "ring-2 ring-indigo-500"  |  null
  */
-export function when<T>(condition: boolean, onTrue: (value: boolean) => T): T | null;
+export function when<T, R>(condition: T, onTrue: (value: NonFalsy<T>) => R): R | null;
 
 /**
  * Overload with explicit falsy branch. Returns `onTrue(condition)` when
@@ -239,18 +255,18 @@ export function when<T>(condition: boolean, onTrue: (value: boolean) => T): T | 
  *   () => "text-red-500",
  * )
  */
-export function when<T, F>(
-  condition: boolean,
-  onTrue: (value: boolean) => T,
-  onFalse: (value: boolean) => F,
-): T | F;
+export function when<T, R, F>(
+  condition: T,
+  onTrue: (value: NonFalsy<T>) => R,
+  onFalse: (value: T) => F,
+): R | F;
 
-export function when<T, F = null>(
-  condition: boolean,
-  onTrue: (value: boolean) => T,
-  onFalse?: (value: boolean) => F,
-): T | F | null {
-  if (condition) return onTrue(condition);
+export function when<T, R, F = null>(
+  condition: T,
+  onTrue: (value: NonFalsy<T>) => R,
+  onFalse?: (value: T) => F,
+): R | F | null {
+  if (condition) return onTrue(condition as NonFalsy<T>);
   if (onFalse) return onFalse(condition);
   return null;
 }

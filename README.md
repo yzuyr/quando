@@ -21,7 +21,7 @@ bun add quando
 | Export               | Purpose                                                                                                             |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `match(obj)`         | Chain-style pattern matcher against plain objects — great for composing class strings or deriving values from props |
-| `when(bool, ...)`    | Lightweight boolean branch helper — returns `null` on no-match, safe for JSX/template interpolation                 |
+| `when(value, ...)`   | Lightweight truthy branch helper — returns `null` on no-match, safe for JSX/template interpolation                  |
 | `collect(...values)` | Merges `match()` and `when()` results into a single space-separated string, filtering all falsy values              |
 | `each(items)`        | Svelte-style `{#each}` list helper — map items to output with an optional empty fallback                            |
 | `resource(envelope)` | Tri-state branch helper for async derived values (`loading` / `error` / `ready`)                                    |
@@ -109,16 +109,59 @@ match({ size: "lg", scale: 4 })
 | ------------ | -------------------- | --------------------------------------------------------------------------- |
 | `.resolve()` | `string` \| `TOut[]` | Joins all matched strings with a space; returns array for non-string `TOut` |
 | `.all()`     | `TOut[]`             | All matched results in registration order                                   |
-| `.first()`   | `TOut \| undefined`  | First matched result                                                        |
-| `.last()`    | `TOut \| undefined`  | Last matched result — useful for override patterns                          |
+| `.first()`   | `TOut \| null`       | First matched result — `null` when nothing matched (Ilha / JSX safe)          |
+| `.last()`    | `TOut \| null`       | Last matched result — useful for override patterns                          |
 
 > **Immutability** — each `.when()` call returns a new builder. The original is never mutated.
+
+### Ilha islands
+
+Pass **snapshots** into `match()` — read island state inside the object, not the accessor itself:
+
+```tsx
+// ✅ snapshot fields
+match({ variant: props.variant, count: state.todos().length })
+  .when(({ count }) => count === 0, () => html`<p>No todos</p>`)
+  .when("variant", { primary: () => html`<Badge />` })
+  .first();
+
+// ❌ accessors in the match object — match compares by value, not reactive paths
+match({ todos: state.todos })
+```
+
+**Button classes** (pairs with Areia `data-variant` / `collect`):
+
+```tsx
+<Button
+  data-variant={collect(
+    match({ active: isActive("/") })
+      .when(({ active }) => active, "secondary")
+      .resolve(),
+    "ghost",
+  )}
+>
+  Home
+</Button>
+```
+
+**Rules of thumb**
+
+| Goal                         | Use                                      |
+| ---------------------------- | ---------------------------------------- |
+| Space-joined class string    | `.resolve()` or `collect(match(...).resolve(), …)` |
+| One optional UI branch       | `.first()` (returns `null` on no match)  |
+| All matching branches        | `.all()`                                 |
+| Override / last wins         | `.last()`                                |
+
+Use `.first()` / `.last()` for JSX (like `when()`), not `.resolve()` — empty `.resolve()` is `""`, which is for strings.
 
 ---
 
 ## `when()`
 
-A boolean branch helper that returns `null` on no-match instead of `false` — because `false` renders as text in JSX/ilha templates while `null` is silently ignored.
+A truthy branch helper that returns `null` on no-match instead of `false` — because `false` renders as text in JSX/ilha templates while `null` is silently ignored.
+
+Accepts any value — `null`, `undefined`, `""`, `0`, and `false` are treated as no-match (same as `if (value)`). The true-branch callback receives the narrowed, truthy value.
 
 Both branch callbacks receive the **condition value** as their argument. This keeps the API consistent and allows the callback to reference it without an outer closure.
 
@@ -127,10 +170,13 @@ Both branch callbacks receive the **condition value** as their argument. This ke
 ```ts
 import { when } from "quando";
 
+when(state.result(), (result) => <p>{result}</p>)
+// → <p>…</p>  or  null
+
 when(user.isPremium, () => <PremiumBadge />)
 // → <PremiumBadge />  or  null
 
-when(isActive, (v) => v ? "ring-2 ring-indigo-500" : "")
+when(isActive, () => "ring-2 ring-indigo-500")
 // → "ring-2 ring-indigo-500"  or  null
 ```
 
@@ -348,9 +394,11 @@ Combining the full API in an island `.render()`:
 // Object pattern matching
 match<TIn, TOut = string>(value: TIn): MatchBuilder<TIn, TOut>
 
-// Boolean branching
-when<T>(condition: boolean, onTrue: (value: boolean) => T): T | null
-when<T, F>(condition: boolean, onTrue: (value: boolean) => T, onFalse: (value: boolean) => F): T | F
+// Truthy branching (null on no-match — Ilha / JSX safe)
+when<T, R>(condition: T, onTrue: (value: NonFalsy<T>) => R): R | null
+when<T, R, F>(condition: T, onTrue: (value: NonFalsy<T>) => R, onFalse: (value: T) => F): R | F
+// MatchBuilder: .when(pred|key) → .resolve() | .all() | .first() | .last()
+// .first() / .last() return null when nothing matches
 
 // String merging
 collect(...values: (string | null | undefined | false)[]): string
@@ -376,7 +424,7 @@ resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T>
 - **Zero dependencies** — ships nothing but TypeScript source.
 - **Immutable builders** — `.when()` always returns a new builder; safe to share and reuse intermediate chains.
 - **Lazy evaluation** — result functions and thunks are only called when their branch is taken.
-- **`null` not `false`** — `when()` follows JSX conventions so falsy renders are always silent.
+- **`null` not `false`** — `when()` and `match().first()` / `.last()` follow JSX conventions so no-match renders are silent.
 - **Value threading** — `when()` passes the condition into both branch callbacks, keeping logic self-contained without outer closures.
 - **Composable by design** — all exports are independent but built to work together.
 - **Framework agnostic** — works equally in React, Preact, Solid, Svelte, [Ilha](https://github.com/ilhajs/ilha), or plain TS.
