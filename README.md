@@ -16,13 +16,15 @@ bun add quando
 
 ## Overview
 
-**quando** exports three complementary utilities:
+**quando** exports five complementary utilities:
 
 | Export               | Purpose                                                                                                             |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `match(obj)`         | Chain-style pattern matcher against plain objects — great for composing class strings or deriving values from props |
 | `when(bool, ...)`    | Lightweight boolean branch helper — returns `null` on no-match, safe for JSX/template interpolation                 |
 | `collect(...values)` | Merges `match()` and `when()` results into a single space-separated string, filtering all falsy values              |
+| `each(items)`        | Svelte-style `{#each}` list helper — map items to output with an optional empty fallback                            |
+| `resource(envelope)` | Tri-state branch helper for async derived values (`loading` / `error` / `ready`)                                    |
 
 ---
 
@@ -211,6 +213,132 @@ const classes = collect(
 
 ---
 
+## `each()`
+
+Svelte-style `{#each}` / `{:else}` for mapping collections to rendered output. Returns an array when items exist, or a single fallback value when the collection is empty.
+
+Both branches are **lazy** — only the taken branch runs.
+
+### Basic list mapping
+
+```ts
+import { each } from "quando";
+
+each([1, 2, 3])
+  .as((n) => n * 2)
+  .all();
+// → [2, 4, 6]
+
+each(["a", "b"])
+  .as((s, i) => `${i}:${s}`)
+  .all();
+// → ["0:a", "1:b"]
+```
+
+### Empty fallback
+
+```ts
+each(items)
+  .as((item) => html`<li>${item.name}</li>`)
+  .else(() => html`<p>No items</p>`);
+// → RawHtml[]  or  RawHtml
+```
+
+When the collection is empty, `.else()` runs and receives the empty array. The map function is not called.
+
+### Keyed lists (ilha `Island.key()`)
+
+Use `.key()` when rendering reorderable lists — the key is passed as the third argument to `.as()`:
+
+```ts
+each(items)
+  .key((item) => item.id)
+  .as((item, index, id) => Row.key(id)({ item }))
+  .else(() => html`<EmptyState />`);
+```
+
+Without `.key()`, use the plain two-argument form:
+
+```ts
+each(items)
+  .as((item, index) => html`<li>${item.name}</li>`)
+  .all();
+```
+
+### Terminal methods
+
+| Method    | Returns              | Description                                              |
+| --------- | -------------------- | -------------------------------------------------------- |
+| `.all()`  | `TOut[]`             | Map every item; empty collection → `[]`                  |
+| `.else()` | `TOut[]` \| `TEmpty` | Map every item, or run fallback when collection is empty |
+
+---
+
+## `resource()`
+
+Tri-state branch helper for async derived envelopes — matches [ilha](https://github.com/ilhajs/ilha)'s `DerivedValue<T>` shape (`{ loading, value, error }`).
+
+Branch order is **loading → error → ready**. Only the taken branch runs.
+
+### Full tri-state
+
+```ts
+import { each, resource } from "quando";
+
+resource(derived.users)
+  .loading(() => html`<Spinner />`)
+  .error((e) => html`<p>${e.message}</p>`)
+  .ready((users) =>
+    each(users ?? [])
+      .key((u) => u.id)
+      .as((u, _i, id) => Row.key(id)({ user: u }))
+      .else(() => html`<EmptyState />`),
+  );
+```
+
+### Shorthand forms
+
+Skip branches you don't need:
+
+```ts
+// error + ready only (no loading UI)
+resource(derived.data)
+  .error((e) => html`<Error message=${e.message} />`)
+  .ready((data) => render(data));
+
+// ready only
+resource(derived.count).ready((n) => html`<span>${n ?? 0}</span>`);
+```
+
+When `loading` is true and no `.loading()` branch is registered, execution falls through to `.ready()` with `value: undefined`.
+
+---
+
+## Ilha island example
+
+Combining the full API in an island `.render()`:
+
+```ts
+.render(({ derived, input }) =>
+  html`<ul class="${collect(
+    "list",
+    when(input.compact, () => "list-compact"),
+  )}">
+    ${resource(derived.items)
+      .loading(() => html`<li class="loading">Loading…</li>`)
+      .error((e) => html`<li class="error">${e.message}</li>`)
+      .ready((items) =>
+        each(items ?? [])
+          .key((item) => item.id)
+          .as((item, _i, id) => Item.key(id)({ item }))
+          .else(() => html`<li class="empty">Nothing here</li>`),
+      )}
+  </ul>`,
+)
+```
+
+---
+
 ## API reference
 
 ```ts
@@ -223,6 +351,18 @@ when<T, F>(condition: boolean, onTrue: (value: boolean) => T, onFalse: (value: b
 
 // String merging
 collect(...values: (string | null | undefined | false)[]): string
+
+// List rendering
+each<TItem>(items: readonly TItem[]): EachBuilder<TItem>
+// EachBuilder: .key(fn) → .as(fn) → .else(fn) | .all()
+//              .as(fn)  → .else(fn) | .all()
+
+// Async derived tri-state
+resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T>
+// ResourceEnvelope: { loading: boolean; value: T | undefined; error: Error | undefined }
+// ResourceBuilder: .loading(fn) → .error(fn) → .ready(fn)
+//                  .error(fn) → .ready(fn)
+//                  .ready(fn)
 ```
 
 ---
@@ -234,8 +374,9 @@ collect(...values: (string | null | undefined | false)[]): string
 - **Lazy evaluation** — result functions and thunks are only called when their branch is taken.
 - **`null` not `false`** — `when()` follows JSX conventions so falsy renders are always silent.
 - **Value threading** — `when()` passes the condition into both branch callbacks, keeping logic self-contained without outer closures.
-- **Composable by design** — `match()`, `when()`, and `collect()` are independent but built to work together.
-- **Framework agnostic** — works equally in React, Preact, Solid, Svelte, Ilha, or plain TS.
+- **Composable by design** — all exports are independent but built to work together.
+- **Framework agnostic** — works equally in React, Preact, Solid, Svelte, [Ilha](https://github.com/ilhajs/ilha), or plain TS.
+- **Svelte-familiar control flow** — `each().as().else()` mirrors `{#each}` / `{:else}`; `resource()` handles async derived envelopes.
 
 ---
 

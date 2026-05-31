@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "bun:test";
 
-import { match, when, collect } from "./index";
+import { match, when, collect, each, resource } from "./index";
 
 // ---------------------------------------------------------------------------
 // match()
@@ -726,5 +726,292 @@ describe("collect()", () => {
     expect(classes).toBe(
       "bg-indigo-600 text-white px-6 py-3 text-lg opacity-50 cursor-not-allowed",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// each()
+// ---------------------------------------------------------------------------
+
+describe("each()", () => {
+  it("returns a builder with as", () => {
+    const builder = each([1]);
+    expect(typeof builder.as).toBe("function");
+  });
+
+  it(".as() returns eachWithAs with else and all", () => {
+    const withAs = each([1]).as((n) => n);
+    expect(typeof withAs.else).toBe("function");
+    expect(typeof withAs.all).toBe("function");
+  });
+});
+
+describe("each() .as() .all()", () => {
+  it("maps each item", () => {
+    expect(
+      each([1, 2, 3])
+        .as((n) => n * 2)
+        .all(),
+    ).toEqual([2, 4, 6]);
+  });
+
+  it("passes index to the map function", () => {
+    expect(
+      each(["a", "b", "c"])
+        .as((_, i) => i)
+        .all(),
+    ).toEqual([0, 1, 2]);
+  });
+
+  it("returns an empty array when the collection is empty", () => {
+    expect(
+      each([] as number[])
+        .as((n) => n * 2)
+        .all(),
+    ).toEqual([]);
+  });
+
+  it("does not call the map function when the collection is empty", () => {
+    let called = false;
+    each([] as number[])
+      .as(() => {
+        called = true;
+        return 0;
+      })
+      .all();
+    expect(called).toBe(false);
+  });
+});
+
+describe("each() .as() .else()", () => {
+  it("maps each item when the collection is non-empty", () => {
+    expect(
+      each([1, 2, 3])
+        .as((n) => `item-${n}`)
+        .else(() => "empty"),
+    ).toEqual(["item-1", "item-2", "item-3"]);
+  });
+
+  it("returns the else branch when the collection is empty", () => {
+    expect(
+      each([] as number[])
+        .as((n) => `item-${n}`)
+        .else(() => "empty"),
+    ).toBe("empty");
+  });
+
+  it("passes the empty collection to the else callback", () => {
+    const received: number[][] = [];
+    each([] as number[])
+      .as((n) => n)
+      .else((items) => {
+        received.push([...items]);
+        return "fallback";
+      });
+    expect(received).toEqual([[]]);
+  });
+
+  it("is lazy — else is not called when items exist", () => {
+    let elseCalled = false;
+    each([1])
+      .as((n) => n)
+      .else(() => {
+        elseCalled = true;
+        return "empty";
+      });
+    expect(elseCalled).toBe(false);
+  });
+
+  it("is lazy — map is not called when the collection is empty", () => {
+    let mapCalled = false;
+    each([] as number[])
+      .as(() => {
+        mapCalled = true;
+        return 0;
+      })
+      .else(() => "empty");
+    expect(mapCalled).toBe(false);
+  });
+
+  it("else may return a different type than mapped items", () => {
+    const result = each([] as number[])
+      .as((n) => n)
+      .else(() => ({ kind: "empty" as const }));
+    expect(result).toEqual({ kind: "empty" });
+  });
+
+  it("works with object return types from map", () => {
+    const result = each([1, 2])
+      .as((n) => ({ id: n }))
+      .else(() => null);
+    expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+  });
+});
+
+describe("each() .key()", () => {
+  it("returns a keyed builder with as", () => {
+    const keyed = each([1]).key((n) => n);
+    expect(typeof keyed.as).toBe("function");
+  });
+
+  it("passes the key as the third argument to as", () => {
+    const keys: number[] = [];
+    each([10, 20])
+      .key((n) => n)
+      .as((item, index, key) => {
+        keys.push(key);
+        return `${item}@${index}`;
+      })
+      .all();
+    expect(keys).toEqual([10, 20]);
+  });
+
+  it("works with else for empty collections", () => {
+    expect(
+      each([] as { id: string }[])
+        .key((item) => item.id)
+        .as((item, _i, id) => `row:${id}:${item.id}`)
+        .else(() => "empty"),
+    ).toBe("empty");
+  });
+
+  it("does not call key or map when the collection is empty", () => {
+    let keyCalled = false;
+    let mapCalled = false;
+    each([] as number[])
+      .key(() => {
+        keyCalled = true;
+        return 0;
+      })
+      .as(() => {
+        mapCalled = true;
+        return 0;
+      })
+      .else(() => "empty");
+    expect(keyCalled).toBe(false);
+    expect(mapCalled).toBe(false);
+  });
+
+  it("simulates ilha island.key() usage", () => {
+    type Item = { id: string; label: string };
+    const Item = {
+      key: (id: string) => (props: { item: Item }) => ({ id, props }),
+    };
+    const items: Item[] = [
+      { id: "a", label: "Alpha" },
+      { id: "b", label: "Beta" },
+    ];
+
+    const result = each(items)
+      .key((item) => item.id)
+      .as((item, _i, id) => Item.key(id)({ item }))
+      .all();
+
+    expect(result).toEqual([
+      { id: "a", props: { item: items[0] } },
+      { id: "b", props: { item: items[1] } },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resource()
+// ---------------------------------------------------------------------------
+
+describe("resource()", () => {
+  it("returns a builder with loading, error, and ready", () => {
+    const builder = resource({ loading: false, value: 1, error: undefined });
+    expect(typeof builder.loading).toBe("function");
+    expect(typeof builder.error).toBe("function");
+    expect(typeof builder.ready).toBe("function");
+  });
+});
+
+describe("resource() .loading() .error() .ready()", () => {
+  it("returns the loading branch when loading", () => {
+    const result = resource<number>({ loading: true, value: undefined, error: undefined })
+      .loading(() => "loading")
+      .error(() => "error")
+      .ready(() => "ready");
+    expect(result).toBe("loading");
+  });
+
+  it("returns the error branch when not loading and error is set", () => {
+    const err = new Error("fail");
+    const result = resource<number>({ loading: false, value: undefined, error: err })
+      .loading(() => "loading")
+      .error((e) => e.message)
+      .ready(() => "ready");
+    expect(result).toBe("fail");
+  });
+
+  it("returns the ready branch with the envelope value", () => {
+    const result = resource({ loading: false, value: [1, 2], error: undefined })
+      .loading(() => "loading")
+      .error(() => "error")
+      .ready((value) => value!.map(String));
+    expect(result).toEqual(["1", "2"]);
+  });
+
+  it("prefers loading over error when both are set", () => {
+    const result = resource<number>({
+      loading: true,
+      value: undefined,
+      error: new Error("fail"),
+    })
+      .loading(() => "loading")
+      .error(() => "error")
+      .ready(() => "ready");
+    expect(result).toBe("loading");
+  });
+
+  it("is lazy — only the taken branch runs", () => {
+    let loadingCalled = false;
+    let errorCalled = false;
+    let readyCalled = false;
+
+    resource({ loading: false, value: 42, error: undefined })
+      .loading(() => {
+        loadingCalled = true;
+        return "loading";
+      })
+      .error(() => {
+        errorCalled = true;
+        return "error";
+      })
+      .ready(() => {
+        readyCalled = true;
+        return "ready";
+      });
+
+    expect(loadingCalled).toBe(false);
+    expect(errorCalled).toBe(false);
+    expect(readyCalled).toBe(true);
+  });
+});
+
+describe("resource() .error() .ready()", () => {
+  it("skips loading and uses error or ready", () => {
+    expect(
+      resource({ loading: true, value: undefined, error: undefined })
+        .error(() => "error")
+        .ready(() => "ready"),
+    ).toBe("ready");
+
+    expect(
+      resource<number>({
+        loading: false,
+        value: undefined,
+        error: new Error("x"),
+      })
+        .error((e) => e.message)
+        .ready(() => "ready"),
+    ).toBe("x");
+  });
+});
+
+describe("resource() .ready()", () => {
+  it("calls ready directly when not loading and no error", () => {
+    expect(resource({ loading: false, value: "ok", error: undefined }).ready((v) => v)).toBe("ok");
   });
 });

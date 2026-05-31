@@ -15,9 +15,6 @@ type Matcher<TIn, TOut> =
       cases: Partial<Record<PropertyKey, TOut | ((value: TIn) => TOut)>>;
     };
 
-/** Lazy value factory — called only when the branch is taken. */
-type Thunk<T> = () => T;
-
 // ---------------------------------------------------------------------------
 // MatchBuilder
 // ---------------------------------------------------------------------------
@@ -279,4 +276,155 @@ export function when<T, F = null>(
  */
 export function collect(...values: (string | null | undefined | false)[]): string {
   return values.filter(Boolean).join(" ");
+}
+
+// ---------------------------------------------------------------------------
+// ResourceBuilder — async derived tri-state (ilha DerivedValue)
+// ---------------------------------------------------------------------------
+
+/** Matches ilha's `DerivedValue<T>` envelope shape. */
+export interface ResourceEnvelope<T> {
+  loading: boolean;
+  value: T | undefined;
+  error: Error | undefined;
+}
+
+export interface ResourceWithError<T, TLoading, TErr> {
+  ready<TReady>(fn: (value: T | undefined) => TReady): TLoading | TErr | TReady;
+}
+
+export interface ResourceWithLoading<T, TLoading> {
+  error<TErr>(fn: (error: Error) => TErr): ResourceWithError<T, TLoading, TErr>;
+}
+
+export interface ResourceWithErrorOnly<T, TErr> {
+  ready<TReady>(fn: (value: T | undefined) => TReady): TErr | TReady;
+}
+
+export interface ResourceBuilder<T> {
+  loading<TLoading>(fn: () => TLoading): ResourceWithLoading<T, TLoading>;
+  error<TErr>(fn: (error: Error) => TErr): ResourceWithErrorOnly<T, TErr>;
+  ready<TReady>(fn: (value: T | undefined) => TReady): TReady;
+}
+
+function resolveResource<T, TOut>(
+  envelope: ResourceEnvelope<T>,
+  branches: {
+    loading?: () => TOut;
+    error?: (error: Error) => TOut;
+    ready: (value: T | undefined) => TOut;
+  },
+): TOut {
+  if (envelope.loading && branches.loading) return branches.loading();
+  if (envelope.error && branches.error) return branches.error(envelope.error);
+  return branches.ready(envelope.value);
+}
+
+/**
+ * Tri-state branch helper for async derived values (`loading` / `error` /
+ * `ready`). Only the taken branch runs — same lazy semantics as `when()`.
+ *
+ * @example — ilha island render
+ * resource(derived.users)
+ *   .loading(() => html`<Spinner />`)
+ *   .error((e) => html`<p>${e.message}</p>`)
+ *   .ready((users) =>
+ *     each(users ?? [])
+ *       .key((u) => u.id)
+ *       .as((u, _i, id) => Row.key(id)({ user: u }))
+ *       .else(() => html`<EmptyState />`),
+ *   )
+ */
+export function resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T> {
+  return {
+    loading(fn) {
+      return {
+        error(errorFn) {
+          return {
+            ready(readyFn) {
+              return resolveResource(envelope, {
+                loading: fn,
+                error: errorFn,
+                ready: readyFn,
+              });
+            },
+          };
+        },
+      };
+    },
+
+    error(errorFn) {
+      return {
+        ready(readyFn) {
+          return resolveResource(envelope, { error: errorFn, ready: readyFn });
+        },
+      };
+    },
+
+    ready(readyFn) {
+      return resolveResource(envelope, { ready: readyFn });
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// EachBuilder — Svelte-style {#each}
+// ---------------------------------------------------------------------------
+
+export interface EachWithAs<TItem, TOut> {
+  else<TEmpty>(fn: (items: readonly TItem[]) => TEmpty): TOut[] | TEmpty;
+  all(): TOut[];
+}
+
+export interface EachKeyedBuilder<TItem, TKey> {
+  as<TOut>(fn: (item: TItem, index: number, key: TKey) => TOut): EachWithAs<TItem, TOut>;
+}
+
+export interface EachBuilder<TItem> {
+  key<TKey>(fn: (item: TItem, index: number) => TKey): EachKeyedBuilder<TItem, TKey>;
+  as<TOut>(fn: (item: TItem, index: number) => TOut): EachWithAs<TItem, TOut>;
+}
+
+function createEachWithAs<TItem, TOut>(
+  items: readonly TItem[],
+  mapFn: (item: TItem, index: number) => TOut,
+): EachWithAs<TItem, TOut> {
+  return {
+    else(fn) {
+      if (items.length === 0) return fn(items);
+      return items.map(mapFn);
+    },
+    all() {
+      return items.map(mapFn);
+    },
+  };
+}
+
+function createEachBuilder<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
+  return {
+    key(keyFn) {
+      return {
+        as(mapFn) {
+          return createEachWithAs(items, (item, index) => mapFn(item, index, keyFn(item, index)));
+        },
+      };
+    },
+    as(mapFn) {
+      return createEachWithAs(items, mapFn);
+    },
+  };
+}
+
+/**
+ * Svelte-style `{#each}` helper for mapping collections to rendered output
+ * with an optional empty fallback.
+ *
+ * @example — keyed ilha island list
+ * each(items)
+ *   .key((item) => item.id)
+ *   .as((item, _i, id) => Row.key(id)({ item }))
+ *   .else(() => html`<EmptyState />`)
+ */
+export function each<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
+  return createEachBuilder(items);
 }
