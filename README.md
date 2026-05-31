@@ -242,25 +242,6 @@ Use directly in ilha templates — arrays interpolate as concatenated children:
 html`<ul>${each(items).as((item) => html`<li>${item.name}</li>`)}</ul>`
 ```
 
-### Ilha bindable lists (pass the accessor, not a snapshot)
-
-Ilha island state exposes list accessors (`state.todos`) whose `.map()` yields **per-item path accessors** — the same items `bind:value` / `bind:checked` need. Pass that accessor to `each`, not `state.todos()`:
-
-```ts
-// ✅ bindable — todo.completed is a signal accessor
-each(state.todos)
-  .as((todo) => <Checkbox bind:checked={todo.completed} label={todo.text} />)
-  .else(() => html`<p>No todos</p>`)
-
-// ❌ snapshot — todo.completed is a plain boolean; bind: is ignored
-each(state.todos())
-  .as((todo) => <Checkbox bind:checked={todo.completed} />)
-```
-
-Equivalent to Ilha’s native `state.todos.map((todo) => …)` with Quando’s `.key()` / `.else()` on top.
-
-Runtime helpers: `isListAccessor(input)`, `isSignalAccessor(value)` (duck-types Ilha’s `ilha.signalAccessor` symbol).
-
 ### Empty fallback
 
 ```ts
@@ -272,18 +253,16 @@ each(items)
 
 When the collection is empty, `.else()` runs and receives the empty array. The map function is not called.
 
-### Keyed lists (ilha `Island.key()`)
+### Keyed lists
 
 Use `.key()` when rendering reorderable lists — the key is passed as the third argument to `.as()`:
 
 ```ts
-each(state.todos)
-  .key((todo) => todo.id) // snapshot for key — .as() still receives accessors
-  .as((todo, index, id) => Row.key(id)({ todo }))
+each(items)
+  .key((item) => item.id)
+  .as((item, index, id) => Row.key(id)({ item }))
   .else(() => html`<EmptyState />`);
 ```
-
-`.key()` reads a stable id from `itemSnapshot(todo)` (plain object). `.as()` receives the per-item accessor so `bind:` works. With plain arrays, both callbacks get plain items.
 
 ### API
 
@@ -374,12 +353,9 @@ collect(...values: (string | null | undefined | false)[]): string
 
 // List rendering
 each<TItem>(items: readonly TItem[]): EachBuilder<TItem>
-each<TItem>(accessor: IlhaArrayAccessor<TItem>): EachAccessorBuilder<TItem>
-// Ilha: pass state.todos, not state.todos() — requires ilha >= 0.6.1 for types
 // EachBuilder: .key(fn) → .as(fn) → .else(fn)?
 //              .as(fn)  → .else(fn)?
 // .as() returns EachResult<TItem, TOut> (TOut[] with optional .else())
-// isListAccessor(v), isSignalAccessor(v)
 
 // Async derived tri-state
 resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T>

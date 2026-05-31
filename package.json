@@ -1,6 +1,6 @@
 {
   "name": "quando",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Typed pattern matching utility for TypeScript. Zero dependencies. Framework agnostic.",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -26,18 +26,11 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "ilha": "^0.6.1",
     "oxfmt": "^0.52.0",
     "oxlint": "^1.67.0",
     "tsdown": "^0.22.1"
   },
   "peerDependencies": {
-    "ilha": ">=0.6.1",
     "typescript": "^6"
-  },
-  "peerDependenciesMeta": {
-    "ilha": {
-      "optional": true
-    }
   }
 }

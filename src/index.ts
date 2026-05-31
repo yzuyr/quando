@@ -371,29 +371,9 @@ export function resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T> {
   };
 }
 
-import type { NestedSignalAccessor } from "ilha";
-
 // ---------------------------------------------------------------------------
 // EachBuilder — Svelte-style {#each}
 // ---------------------------------------------------------------------------
-
-/** Symbol description used by Ilha's `SIGNAL_ACCESSOR` (duck-typed at runtime). */
-const ILHA_SIGNAL_ACCESSOR = "ilha.signalAccessor";
-
-/** Re-export for consumers pairing quando with ilha >= 0.6.1. */
-export type { NestedSignalAccessor };
-
-/** Ilha marked accessor for an array value (`state.todos`). */
-export type IlhaArrayAccessor<TItem> = NestedSignalAccessor<readonly TItem[]>;
-
-/** Per-item path accessor from Ilha list `.map()` / `each(accessor)`. */
-export type IlhaItemAccessor<TItem> = NestedSignalAccessor<TItem>;
-
-/**
- * Ilha island list accessor with `.map` / nested fields (ilha >= 0.6.1).
- * Pass the accessor itself — **not** `state.todos()`, which snapshots and breaks `bind:`.
- */
-export type IlhaListAccessor<TItem> = NestedSignalAccessor<readonly TItem[]>;
 
 /** Mapped list result — usable directly in templates; chain `.else()` for empty fallback. */
 export type EachResult<TItem, TOut> = TOut[] & {
@@ -409,44 +389,6 @@ export interface EachBuilder<TItem> {
   as<TOut>(fn: (item: TItem, index: number) => TOut): EachResult<TItem, TOut>;
 }
 
-/** Ilha list accessor builder — `.as()` receives per-item accessors; `.key()` receives snapshots. */
-export interface EachAccessorKeyedBuilder<TItem, TKey> {
-  as<TOut>(
-    fn: (item: IlhaItemAccessor<TItem>, index: number, key: TKey) => TOut,
-  ): EachResult<IlhaItemAccessor<TItem>, TOut>;
-}
-
-export interface EachAccessorBuilder<TItem> {
-  key<TKey>(fn: (item: TItem, index: number) => TKey): EachAccessorKeyedBuilder<TItem, TKey>;
-  as<TOut>(fn: (item: IlhaItemAccessor<TItem>, index: number) => TOut): EachResult<IlhaItemAccessor<TItem>, TOut>;
-}
-
-const __DEV__ = typeof process !== "undefined" ? process.env?.["NODE_ENV"] !== "production" : true;
-
-function hasIlhaSignalBrand(fn: object): boolean {
-  return Object.getOwnPropertySymbols(fn).some((s) => s.description === ILHA_SIGNAL_ACCESSOR);
-}
-
-/** Duck-type Ilha / alien-signals-style marked accessors (bind:, nested paths). */
-export function isSignalAccessor(v: unknown): v is IlhaItemAccessor<unknown> {
-  return typeof v === "function" && hasIlhaSignalBrand(v);
-}
-
-/** Ilha island array accessor (`state.todos`) with `.map` yielding per-item accessors. */
-export function isListAccessor<TItem>(v: unknown): v is IlhaArrayAccessor<TItem> {
-  if (!isSignalAccessor(v)) return false;
-  return typeof (v as { map?: unknown }).map === "function";
-}
-
-function isItemSignalAccessor<T>(item: T | IlhaItemAccessor<T>): item is IlhaItemAccessor<T> {
-  return typeof item === "function" && hasIlhaSignalBrand(item);
-}
-
-function itemSnapshot<T>(item: T | IlhaItemAccessor<T>): T {
-  if (isItemSignalAccessor(item)) return item();
-  return item;
-}
-
 function createEachResult<TItem, TOut>(
   items: readonly TItem[],
   mapFn: (item: TItem, index: number) => TOut,
@@ -456,28 +398,6 @@ function createEachResult<TItem, TOut>(
   Object.defineProperty(result, "else", {
     value<TEmpty>(fn: (items: readonly TItem[]) => TEmpty): TOut[] | TEmpty {
       if (items.length === 0) return fn(items);
-      return mapped;
-    },
-    enumerable: false,
-  });
-  return result;
-}
-
-function createEachResultFromAccessor<TItem, TOut>(
-  accessor: IlhaArrayAccessor<TItem>,
-  mapFn: (item: IlhaItemAccessor<TItem>, index: number) => TOut,
-): EachResult<IlhaItemAccessor<TItem>, TOut> {
-  const list = accessor as IlhaListAccessor<TItem>;
-  const items = accessor();
-  const mapped =
-    items.length === 0
-      ? []
-      : list.map((item, index) => mapFn(item, index));
-  const result = mapped as EachResult<IlhaItemAccessor<TItem>, TOut>;
-  Object.defineProperty(result, "else", {
-    value<TEmpty>(fn: (items: readonly TItem[]) => TEmpty): TOut[] | TEmpty {
-      const current = accessor();
-      if (current.length === 0) return fn(current);
       return mapped;
     },
     enumerable: false,
@@ -502,60 +422,19 @@ function createEachBuilder<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
   };
 }
 
-function createEachAccessorBuilder<TItem>(
-  accessor: IlhaArrayAccessor<TItem>,
-): EachAccessorBuilder<TItem> {
-  return {
-    key(keyFn) {
-      return {
-        as(mapFn) {
-          return createEachResultFromAccessor(accessor, (item, index) =>
-            mapFn(item, index, keyFn(itemSnapshot<TItem>(item), index)),
-          );
-        },
-      };
-    },
-    as(mapFn) {
-      return createEachResultFromAccessor(accessor, mapFn);
-    },
-  };
-}
-
 /**
  * Svelte-style `{#each}` helper for mapping collections to rendered output
  * with an optional empty fallback.
  *
- * Pass an **Ilha list accessor** (`state.todos`) for bindable per-item fields;
- * pass a **plain array** for static data. Do not call the accessor — `each(state.todos())`
- * snapshots and `bind:` will not wire.
- *
  * @example — plain list (empty → [])
  * each(items).as((item) => html`<li>${item.name}</li>`)
  *
- * @example — Ilha bindable list (pass accessor, not snapshot)
- * each(state.todos)
- *   .as((todo) => <Checkbox bind:checked={todo.completed} />)
- *   .else(() => html`<EmptyState />`)
- *
- * @example — keyed ilha island list with empty fallback
- * each(state.todos)
- *   .key((todo) => todo.id)
- *   .as((todo, _i, id) => Row.key(id)({ todo }))
+ * @example — keyed list with empty fallback
+ * each(items)
+ *   .key((item) => item.id)
+ *   .as((item, _i, id) => Row.key(id)({ item }))
  *   .else(() => html`<EmptyState />`)
  */
-export function each<TItem>(items: readonly TItem[]): EachBuilder<TItem>;
-export function each<TItem>(accessor: IlhaArrayAccessor<TItem>): EachAccessorBuilder<TItem>;
-export function each<TItem>(
-  input: readonly TItem[] | IlhaArrayAccessor<TItem>,
-): EachBuilder<TItem> | EachAccessorBuilder<TItem> {
-  if (isListAccessor<TItem>(input)) {
-    return createEachAccessorBuilder(input);
-  }
-  if (__DEV__ && isSignalAccessor(input)) {
-    console.warn(
-      "[quando] each(): received a signal accessor where a list was expected. " +
-        "Pass the list accessor itself (e.g. each(state.todos)), not a snapshot (each(state.todos())).",
-    );
-  }
-  return createEachBuilder(input as readonly TItem[]);
+export function each<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
+  return createEachBuilder(items);
 }
