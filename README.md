@@ -215,7 +215,9 @@ const classes = collect(
 
 ## `each()`
 
-Svelte-style `{#each}` / `{:else}` for mapping collections to rendered output. Returns an array when items exist, or a single fallback value when the collection is empty.
+Svelte-style `{#each}` / `{:else}` for mapping collections to rendered output.
+
+`.as()` returns a mapped array directly — empty collections render as `[]`. Chain `.else()` only when you need an empty-state fallback.
 
 Both branches are **lazy** — only the taken branch runs.
 
@@ -224,16 +226,40 @@ Both branches are **lazy** — only the taken branch runs.
 ```ts
 import { each } from "quando";
 
-each([1, 2, 3])
-  .as((n) => n * 2)
-  .all();
+each([1, 2, 3]).as((n) => n * 2);
 // → [2, 4, 6]
 
-each(["a", "b"])
-  .as((s, i) => `${i}:${s}`)
-  .all();
+each(["a", "b"]).as((s, i) => `${i}:${s}`);
 // → ["0:a", "1:b"]
+
+each([]).as((n) => n * 2);
+// → []
 ```
+
+Use directly in ilha templates — arrays interpolate as concatenated children:
+
+```ts
+html`<ul>${each(items).as((item) => html`<li>${item.name}</li>`)}</ul>`
+```
+
+### Ilha bindable lists (pass the accessor, not a snapshot)
+
+Ilha island state exposes list accessors (`state.todos`) whose `.map()` yields **per-item path accessors** — the same items `bind:value` / `bind:checked` need. Pass that accessor to `each`, not `state.todos()`:
+
+```ts
+// ✅ bindable — todo.completed is a signal accessor
+each(state.todos)
+  .as((todo) => <Checkbox bind:checked={todo.completed} label={todo.text} />)
+  .else(() => html`<p>No todos</p>`)
+
+// ❌ snapshot — todo.completed is a plain boolean; bind: is ignored
+each(state.todos())
+  .as((todo) => <Checkbox bind:checked={todo.completed} />)
+```
+
+Equivalent to Ilha’s native `state.todos.map((todo) => …)` with Quando’s `.key()` / `.else()` on top.
+
+Runtime helpers: `isListAccessor(input)`, `isSignalAccessor(value)` (duck-types Ilha’s `ilha.signalAccessor` symbol).
 
 ### Empty fallback
 
@@ -251,26 +277,20 @@ When the collection is empty, `.else()` runs and receives the empty array. The m
 Use `.key()` when rendering reorderable lists — the key is passed as the third argument to `.as()`:
 
 ```ts
-each(items)
-  .key((item) => item.id)
-  .as((item, index, id) => Row.key(id)({ item }))
+each(state.todos)
+  .key((todo) => todo.id) // snapshot for key — .as() still receives accessors
+  .as((todo, index, id) => Row.key(id)({ todo }))
   .else(() => html`<EmptyState />`);
 ```
 
-Without `.key()`, use the plain two-argument form:
+`.key()` reads a stable id from `itemSnapshot(todo)` (plain object). `.as()` receives the per-item accessor so `bind:` works. With plain arrays, both callbacks get plain items.
 
-```ts
-each(items)
-  .as((item, index) => html`<li>${item.name}</li>`)
-  .all();
-```
+### API
 
-### Terminal methods
-
-| Method    | Returns              | Description                                              |
-| --------- | -------------------- | -------------------------------------------------------- |
-| `.all()`  | `TOut[]`             | Map every item; empty collection → `[]`                  |
-| `.else()` | `TOut[]` \| `TEmpty` | Map every item, or run fallback when collection is empty |
+| Call | Returns | Empty collection |
+| ---- | ------- | ---------------- |
+| `.as(fn)` | `TOut[]` | `[]` |
+| `.as(fn).else(fn)` | `TOut[]` \| `TEmpty` | fallback value |
 
 ---
 
@@ -354,8 +374,12 @@ collect(...values: (string | null | undefined | false)[]): string
 
 // List rendering
 each<TItem>(items: readonly TItem[]): EachBuilder<TItem>
-// EachBuilder: .key(fn) → .as(fn) → .else(fn) | .all()
-//              .as(fn)  → .else(fn) | .all()
+each<TItem>(accessor: IlhaListAccessor<TItem>): EachBuilder<IlhaItemAccessor<TItem>>
+// Ilha: pass state.todos, not state.todos()
+// EachBuilder: .key(fn) → .as(fn) → .else(fn)?
+//              .as(fn)  → .else(fn)?
+// .as() returns EachResult<TItem, TOut> (TOut[] with optional .else())
+// isListAccessor(v), isSignalAccessor(v)
 
 // Async derived tri-state
 resource<T>(envelope: ResourceEnvelope<T>): ResourceBuilder<T>

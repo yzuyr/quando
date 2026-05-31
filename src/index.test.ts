@@ -4,7 +4,16 @@
 
 import { describe, it, expect } from "bun:test";
 
-import { match, when, collect, each, resource } from "./index";
+import {
+  match,
+  when,
+  collect,
+  each,
+  resource,
+  isSignalAccessor,
+  isListAccessor,
+  type IlhaListAccessor,
+} from "./index";
 
 // ---------------------------------------------------------------------------
 // match()
@@ -739,46 +748,33 @@ describe("each()", () => {
     expect(typeof builder.as).toBe("function");
   });
 
-  it(".as() returns eachWithAs with else and all", () => {
-    const withAs = each([1]).as((n) => n);
-    expect(typeof withAs.else).toBe("function");
-    expect(typeof withAs.all).toBe("function");
+  it(".as() returns a mapped array with optional else", () => {
+    const result = each([1]).as((n) => n);
+    expect(Array.isArray(result)).toBe(true);
+    expect([...result]).toEqual([1]);
+    expect(typeof result.else).toBe("function");
   });
 });
 
-describe("each() .as() .all()", () => {
+describe("each() .as()", () => {
   it("maps each item", () => {
-    expect(
-      each([1, 2, 3])
-        .as((n) => n * 2)
-        .all(),
-    ).toEqual([2, 4, 6]);
+    expect([...each([1, 2, 3]).as((n) => n * 2)]).toEqual([2, 4, 6]);
   });
 
   it("passes index to the map function", () => {
-    expect(
-      each(["a", "b", "c"])
-        .as((_, i) => i)
-        .all(),
-    ).toEqual([0, 1, 2]);
+    expect([...each(["a", "b", "c"]).as((_, i) => i)]).toEqual([0, 1, 2]);
   });
 
   it("returns an empty array when the collection is empty", () => {
-    expect(
-      each([] as number[])
-        .as((n) => n * 2)
-        .all(),
-    ).toEqual([]);
+    expect([...each([] as number[]).as((n) => n * 2)]).toEqual([]);
   });
 
   it("does not call the map function when the collection is empty", () => {
     let called = false;
-    each([] as number[])
-      .as(() => {
-        called = true;
-        return 0;
-      })
-      .all();
+    each([] as number[]).as(() => {
+      called = true;
+      return 0;
+    });
     expect(called).toBe(false);
   });
 });
@@ -861,8 +857,7 @@ describe("each() .key()", () => {
       .as((item, index, key) => {
         keys.push(key);
         return `${item}@${index}`;
-      })
-      .all();
+      });
     expect(keys).toEqual([10, 20]);
   });
 
@@ -904,13 +899,146 @@ describe("each() .key()", () => {
 
     const result = each(items)
       .key((item) => item.id)
-      .as((item, _i, id) => Item.key(id)({ item }))
-      .all();
+      .as((item, _i, id) => Item.key(id)({ item }));
 
-    expect(result).toEqual([
+    expect([...result]).toEqual([
       { id: "a", props: { item: { id: "a", label: "Alpha" } } },
       { id: "b", props: { item: { id: "b", label: "Beta" } } },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// each() — Ilha list accessors (mock)
+// ---------------------------------------------------------------------------
+
+const ILHA_SIGNAL_ACCESSOR = Symbol("ilha.signalAccessor");
+
+function markSignalAccessor<T extends object>(fn: T): T {
+  (fn as unknown as Record<symbol, boolean>)[ILHA_SIGNAL_ACCESSOR] = true;
+  return fn;
+}
+
+type MockTodo = { id: string; completed: boolean; text: string };
+
+/** Minimal Ilha-style list accessor for tests (immutable array + per-item path accessors). */
+function createMockListAccessor(initial: MockTodo[]): IlhaListAccessor<MockTodo> {
+  let data = initial.map((t) => ({ ...t }));
+
+  function setAt(index: number, patch: Partial<MockTodo>): void {
+    data = data.map((item, i) => (i === index ? { ...item, ...patch } : item));
+  }
+
+  function wrapItem(index: number) {
+    const itemAccessor = markSignalAccessor((value?: MockTodo): MockTodo => {
+      if (value === undefined) return data[index]!;
+      setAt(index, value);
+      return data[index]!;
+    });
+
+    return new Proxy(itemAccessor, {
+      get(_target, prop) {
+        if (prop === "length" || prop === "name" || prop === "prototype") return undefined;
+        if (prop === ILHA_SIGNAL_ACCESSOR) return true;
+        const key = String(prop) as keyof MockTodo;
+        return markSignalAccessor((fieldValue?: MockTodo[typeof key]) => {
+          if (fieldValue === undefined) return data[index]![key];
+          setAt(index, { [key]: fieldValue });
+          return data[index]![key];
+        });
+      },
+    });
+  }
+
+  const root = markSignalAccessor((value?: readonly MockTodo[]): readonly MockTodo[] => {
+    if (value === undefined) return data;
+    data = value.map((t) => ({ ...t }));
+    return data;
+  }) as IlhaListAccessor<MockTodo>;
+
+  Object.assign(root, {
+    map<R>(fn: (item: ReturnType<typeof wrapItem>, index: number) => R): R[] {
+      return data.map((_, index) => fn(wrapItem(index), index));
+    },
+  });
+
+  return root;
+}
+
+describe("each() Ilha accessors", () => {
+  it("isListAccessor detects mock list accessor", () => {
+    const todos = createMockListAccessor([{ id: "1", completed: false, text: "a" }]);
+    expect(isListAccessor(todos)).toBe(true);
+    expect(isListAccessor(todos())).toBe(false);
+  });
+
+  it("passes per-item accessors into .as(), not snapshots", () => {
+    const todos = createMockListAccessor([
+      { id: "1", completed: false, text: "alpha" },
+      { id: "2", completed: true, text: "beta" },
+    ]);
+
+    const seen: unknown[] = [];
+    each(todos).as((todo) => {
+      seen.push(todo);
+      return (todo as unknown as { completed: () => boolean }).completed();
+    });
+
+    expect(seen).toHaveLength(2);
+    expect(isSignalAccessor(seen[0])).toBe(true);
+    expect(isSignalAccessor(seen[1])).toBe(true);
+    expect((seen[0] as () => MockTodo)()).toEqual({
+      id: "1",
+      completed: false,
+      text: "alpha",
+    });
+    expect((seen[1] as () => MockTodo)().completed).toBe(true);
+  });
+
+  it("nested field accessors are bindable (todo.completed)", () => {
+    const todos = createMockListAccessor([{ id: "1", completed: false, text: "a" }]);
+    let completedAccessor: (() => boolean) & ((v: boolean) => void) | undefined;
+
+    each(todos).as((todo) => {
+      completedAccessor = (todo as unknown as { completed: typeof completedAccessor }).completed;
+      return null;
+    });
+
+    expect(isSignalAccessor(completedAccessor)).toBe(true);
+    expect(completedAccessor!()).toBe(false);
+    completedAccessor!(true);
+    expect(todos()[0]!.completed).toBe(true);
+  });
+
+  it(".else() runs when accessor holds an empty list", () => {
+    const todos = createMockListAccessor([]);
+    expect(
+      each(todos)
+        .as(() => "row")
+        .else(() => "empty"),
+    ).toBe("empty");
+  });
+
+  it(".key() passes key from item snapshot", () => {
+    const todos = createMockListAccessor([
+      { id: "a", completed: false, text: "A" },
+      { id: "b", completed: false, text: "B" },
+    ]);
+
+    const keys: string[] = [];
+    each(todos)
+      .key((todo: MockTodo) => todo.id)
+      .as((todo, _i, key) => {
+        keys.push(key);
+        return (todo as unknown as { text: () => string }).text();
+      });
+
+    expect(keys).toEqual(["a", "b"]);
+  });
+
+  it("plain array path is unchanged (not treated as accessor)", () => {
+    expect([...each([1, 2]).as((n) => n * 2)]).toEqual([2, 4]);
+    expect(isListAccessor([1, 2])).toBe(false);
   });
 });
 
